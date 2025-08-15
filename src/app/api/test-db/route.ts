@@ -2,12 +2,10 @@ import { NextResponse } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createUrlMetaStoreClient } from "@/durable-objects/UrlMetaStore";
 
-interface RequestWithEnv extends Request {
-  env?: CloudflareEnv;
-}
+export async function GET() {
+  const { env } = getCloudflareContext();
 
-export async function GET(request: RequestWithEnv) {
-  if (!request.env?.URL_META_STORE) {
+  if (!env?.URL_META_STORE) {
     return new NextResponse(
       JSON.stringify(
         {
@@ -62,8 +60,10 @@ export async function GET(request: RequestWithEnv) {
   }
 }
 
-export async function POST(request: RequestWithEnv) {
-  if (!request.env?.URL_META_STORE) {
+export async function POST(request: Request) {
+  const { env } = getCloudflareContext();
+
+  if (!env?.URL_META_STORE) {
     return new NextResponse(
       JSON.stringify(
         {
