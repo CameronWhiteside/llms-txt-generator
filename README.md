@@ -13,9 +13,9 @@ graph TB
 
     subgraph "Edge Computing Layer"
         D[Cloudflare Workers] --> E[Next.js API Routes]
-        E --> F[/api/generate]
-        E --> G[/api/debug]
-        E --> H[/api/test-*]
+        E --> F[api/generate]
+        E --> G[api/debug]
+        E --> H[api/test-*]
     end
 
     subgraph "AI & Processing Layer"
@@ -95,6 +95,7 @@ sequenceDiagram
 The system uses a sophisticated multi-layer caching approach:
 
 #### **SimHash Content Similarity Detection**
+
 - **Algorithm**: SimHash with 64-bit hashing
 - **Purpose**: Detect content changes while being robust to minor variations
 - **Threshold**: Configurable similarity threshold (default: 0.8)
@@ -112,6 +113,7 @@ graph LR
 ```
 
 #### **Cache Layers**
+
 1. **Durable Objects Cache**: In-memory storage for URL metadata and content hashes
 2. **R2 Storage**: Persistent storage for generated llms.txt files
 3. **Content Hash Tracking**: SimHash-based similarity detection
@@ -130,6 +132,7 @@ const isSimilar = SimHash.isSimilar(hash1, hash2, 0.8);
 ```
 
 **Features:**
+
 - **64-bit SimHash**: Robust content fingerprinting
 - **K-gram Feature Extraction**: Captures content structure
 - **Hamming Distance**: Measures content differences
@@ -140,16 +143,19 @@ const isSimilar = SimHash.isSimilar(hash1, hash2, 0.8);
 The system leverages Cloudflare Workers AI with multiple model options:
 
 #### **Available Models**
+
 - **Llama 3.2 3B**: Fast, efficient for quick generation
 - **Llama 3.8B**: Higher quality, more detailed analysis
 
 #### **Prompt Engineering**
+
 The AI uses carefully crafted prompts to generate structured llms.txt files:
 
 ```markdown
 # Example llms.txt Structure
+
 - Summary
-- Key Topics  
+- Key Topics
 - Important Information
 - Contact Information
 - Services/Products
@@ -163,20 +169,23 @@ The AI uses carefully crafted prompts to generate structured llms.txt files:
 ### **Core Components**
 
 #### **1. Cloudflare Workers**
+
 - **Runtime**: V8 isolates for edge execution
 - **Global Distribution**: 200+ locations worldwide
 - **Cold Start**: <1ms startup time
 - **Memory**: 128MB per worker
 
 #### **2. Durable Objects**
+
 - **Purpose**: Stateful storage for URL metadata
-- **Features**: 
+- **Features**:
   - In-memory caching
   - Content hash storage
   - Query history tracking
   - Automatic scaling
 
 #### **3. R2 Object Storage**
+
 - **Purpose**: Persistent storage for generated files
 - **Features**:
   - S3-compatible API
@@ -185,6 +194,7 @@ The AI uses carefully crafted prompts to generate structured llms.txt files:
   - Automatic compression
 
 #### **4. Workers AI**
+
 - **Models**: Llama 3.2 3B, Llama 3.8B
 - **Features**:
   - Edge AI inference
@@ -274,6 +284,7 @@ src/
 ### **Configuration Files**
 
 #### **wrangler.jsonc**
+
 ```json
 {
   "name": "llm-txt-generator",
@@ -328,26 +339,30 @@ npm run deploy
 ## 💡 Advanced Features
 
 ### **1. Content Drift Detection**
+
 - Tracks content changes over time
 - Identifies minor vs. major updates
 - Prevents unnecessary regeneration
 
 ### **2. Multi-URL Processing**
+
 - Batch processing of multiple pages
 - Intelligent content aggregation
 - Unified llms.txt generation
 
 ### **3. Configurable Similarity Thresholds**
+
 ```typescript
 const thresholds = {
-  strict: 0.9,    // Very similar content
-  default: 0.8,   // Standard similarity
-  loose: 0.7,     // More permissive
-  none: 0.95      // Nearly identical
+  strict: 0.9, // Very similar content
+  default: 0.8, // Standard similarity
+  loose: 0.7, // More permissive
+  none: 0.95, // Nearly identical
 };
 ```
 
 ### **4. Comprehensive Error Handling**
+
 - Graceful degradation
 - Detailed error reporting
 - Fallback mechanisms
@@ -355,12 +370,14 @@ const thresholds = {
 ## 🔒 Security & Privacy
 
 ### **Data Protection**
+
 - **No Data Retention**: Content not stored permanently
 - **Hash-based Caching**: No raw content in cache
 - **Secure Storage**: R2 with encryption at rest
 - **Input Validation**: Comprehensive URL validation
 
 ### **Rate Limiting**
+
 - Built-in Cloudflare rate limiting
 - Per-user request tracking
 - Abuse prevention mechanisms
@@ -368,12 +385,14 @@ const thresholds = {
 ## 📊 Monitoring & Analytics
 
 ### **Built-in Observability**
+
 - Cloudflare Analytics integration
 - Request/response logging
 - Performance metrics
 - Error tracking
 
 ### **Debug Endpoints**
+
 - `/api/debug` - System health check
 - `/api/test-ai` - AI service testing
 - `/api/test-db` - Database connectivity
@@ -382,6 +401,7 @@ const thresholds = {
 ## 🛠️ Development
 
 ### **Local Development**
+
 ```bash
 # Install dependencies
 npm install
@@ -397,12 +417,14 @@ npm run deploy
 ```
 
 ### **Environment Setup**
+
 1. **Cloudflare Account**: Required for Workers, R2, and AI
 2. **Wrangler CLI**: For deployment and management
 3. **R2 Bucket**: For file storage
 4. **Durable Objects**: For caching and metadata
 
 ### **Testing**
+
 ```bash
 # Run tests
 npm test
@@ -417,21 +439,25 @@ curl -X GET http://localhost:3000/api/test-db
 ## 🌟 Key Benefits
 
 ### **Performance**
+
 - **Edge Computing**: Global distribution for low latency
 - **Intelligent Caching**: Reduces AI costs and improves speed
 - **Optimized Storage**: Cost-effective R2 storage
 
 ### **Scalability**
+
 - **Auto-scaling**: Handles traffic spikes automatically
 - **Global Distribution**: Serves users from nearest edge
 - **Stateless Design**: Easy horizontal scaling
 
 ### **Cost Efficiency**
+
 - **Pay-per-use**: Only pay for actual usage
 - **Caching**: Reduces expensive AI calls
 - **No Infrastructure**: Managed by Cloudflare
 
 ### **Developer Experience**
+
 - **Modern Stack**: Next.js, React, TypeScript
 - **Easy Deployment**: One-command deployment
 - **Comprehensive Logging**: Built-in observability
@@ -439,6 +465,7 @@ curl -X GET http://localhost:3000/api/test-db
 ## 🔮 Future Enhancements
 
 ### **Planned Features**
+
 - **Streaming Responses**: Real-time content generation
 - **Advanced Analytics**: Detailed usage insights
 - **Custom Models**: Support for additional AI models
@@ -446,6 +473,7 @@ curl -X GET http://localhost:3000/api/test-db
 - **Webhook Support**: Real-time notifications
 
 ### **Architecture Improvements**
+
 - **Multi-region Support**: Enhanced global distribution
 - **Advanced Caching**: Redis-like caching layer
 - **Content Versioning**: Track content changes over time
@@ -464,6 +492,7 @@ Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md)
 ## 📞 Support
 
 For support and questions:
+
 - **Issues**: [GitHub Issues](https://github.com/your-repo/issues)
 - **Documentation**: [Project Wiki](https://github.com/your-repo/wiki)
 - **Community**: [Discussions](https://github.com/your-repo/discussions)
