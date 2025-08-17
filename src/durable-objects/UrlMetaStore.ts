@@ -5,6 +5,7 @@
 
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { SimHash } from "../lib/softHash";
+import { UrlNormalizer } from "../lib/urlNormalizer";
 
 // Constants
 const MAX_RECORDS = 1000;
@@ -13,8 +14,7 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 export interface UrlMetaRecord {
   url: string;
   contentHash: string;
-  llmsTxt?: string;
-  llmsTxtHash?: string;
+  llmsTxt?: string; // Store the actual llms.txt content
   timestamp: number;
   lastQueried: number;
   queryCount: number;
@@ -28,22 +28,23 @@ export interface UrlMetaRecord {
     userAgent?: string;
     referrer?: string;
     ipAddress?: string;
+    originalUrl?: string;
   };
 }
 
 export interface UrlMetaHistory {
-  records: UrlMetaRecord[];
+  records: Map<string, UrlMetaRecord>; // Key is normalized URL
   totalQueries: number;
-  uniqueUrls: number;
   lastUpdated: number;
 }
 
 export interface CacheResult {
   cached: boolean;
-  llmsTxt?: string;
+  llmsTxt?: string; // The cached llms.txt content
   record?: UrlMetaRecord;
   similarity?: number;
   threshold?: number;
+  contentHash?: string;
 }
 
 export class UrlMetaStore {
@@ -57,51 +58,73 @@ export class UrlMetaStore {
 
   /**
    * Check if content is cached and return cached llms.txt if within threshold
+   * Similarity is calculated dynamically each time, not stored
    */
   async checkCache(url: string, sanitizedContent: string, threshold: number = 0.8): Promise<CacheResult> {
     const history = await this.getHistory();
-    const existingRecord = history.records.find((r) => r.url === url);
+
+    // Normalize the URL for cache lookup
+    const normalizedUrl = UrlNormalizer.normalize(url);
+    console.log("🔍 Cache check - Original URL:", url);
+    console.log("🔍 Cache check - Normalized URL:", normalizedUrl);
+
+    // Find existing record by normalized URL
+    const existingRecord = history.records.get(normalizedUrl);
 
     if (!existingRecord) {
+      console.log("❌ No cache found for URL:", normalizedUrl);
       return { cached: false };
     }
 
+    console.log("✅ Cache found for URL:", normalizedUrl);
+    console.log("📊 Existing record hash:", existingRecord.contentHash);
+
     // Generate soft hash for the new sanitized content
     const newContentHash = SimHash.hash(sanitizedContent);
+    console.log("🔐 New content hash:", newContentHash);
 
-    // Compare with stored hash
+    // Compare with stored hash - similarity calculated dynamically
     const similarity = SimHash.similarity(existingRecord.contentHash, newContentHash);
+    console.log("📈 Similarity score:", similarity, "Threshold:", threshold);
 
     if (similarity >= threshold) {
       // Content is similar enough, return cached llms.txt
+      console.log("✅ Cache hit! Similarity above threshold");
       return {
         cached: true,
         llmsTxt: existingRecord.llmsTxt,
         record: existingRecord,
         similarity,
         threshold,
+        contentHash: newContentHash, // Return the current content hash for reference
       };
     }
 
+    console.log("❌ Cache miss! Similarity below threshold");
     return {
       cached: false,
       similarity,
       threshold,
+      contentHash: newContentHash, // Return the current content hash for reference
     };
   }
 
   /**
    * Store new content with llms.txt and update cache
+   * Only stores content hash and llms.txt, similarity is calculated dynamically
    */
   async storeContent(url: string, sanitizedContent: string, llmsTxt: string, threshold: number = 0.8, metadata?: Record<string, unknown>): Promise<void> {
+    // Normalize the URL for storage
+    const normalizedUrl = UrlNormalizer.normalize(url);
+    console.log("💾 Storing content - Original URL:", url);
+    console.log("💾 Storing content - Normalized URL:", normalizedUrl);
+
     const contentHash = SimHash.hash(sanitizedContent);
-    const llmsTxtHash = SimHash.hash(llmsTxt);
 
     const record: UrlMetaRecord = {
-      url,
+      url: normalizedUrl, // Store the normalized URL
       contentHash,
-      llmsTxt,
-      llmsTxtHash,
+      llmsTxt, // Store the actual llms.txt content
       timestamp: Date.now(),
       lastQueried: Date.now(),
       queryCount: 1,
@@ -109,11 +132,58 @@ export class UrlMetaStore {
       metadata: {
         contentLength: sanitizedContent.length,
         processingTime: Date.now(),
+        originalUrl: url, // Keep original URL in metadata for reference
         ...metadata,
       },
     };
 
+    console.log("💾 Storing record:", {
+      url: record.url,
+      contentHash: record.contentHash,
+      contentLength: record.metadata?.contentLength,
+    });
+
     await this.storeRecord(record);
+  }
+
+  /**
+   * Update only the llms.txt content without changing the content hash
+   * Used for AI revisions and manual edits
+   */
+  async updateLlmsTxt(url: string, newLlmsTxt: string, metadata?: Record<string, unknown>): Promise<void> {
+    // Normalize the URL for lookup
+    const normalizedUrl = UrlNormalizer.normalize(url);
+    console.log("🔄 Updating llms.txt - Original URL:", url);
+    console.log("🔄 Updating llms.txt - Normalized URL:", normalizedUrl);
+
+    const history = await this.getHistory();
+    const existingRecord = history.records.get(normalizedUrl);
+
+    if (!existingRecord) {
+      console.log("❌ No existing record found for URL:", normalizedUrl);
+      throw new Error(`No existing record found for URL: ${url}`);
+    }
+
+    // Update only the llms.txt content and metadata, keep the original content hash
+    const updatedRecord: UrlMetaRecord = {
+      ...existingRecord,
+      llmsTxt: newLlmsTxt,
+      lastQueried: Date.now(),
+      queryCount: existingRecord.queryCount + 1,
+      metadata: {
+        ...existingRecord.metadata,
+        ...metadata,
+        processingTime: Date.now(),
+      },
+    };
+
+    console.log("🔄 Updating record:", {
+      url: updatedRecord.url,
+      contentHash: updatedRecord.contentHash, // Unchanged
+      contentLength: updatedRecord.metadata?.contentLength,
+    });
+
+    await this.storeRecord(updatedRecord);
   }
 
   /**
@@ -121,77 +191,70 @@ export class UrlMetaStore {
    */
   async storeRecord(record: UrlMetaRecord): Promise<void> {
     const history = await this.getHistory();
-    const existingRecordIndex = history.records.findIndex((r) => r.url === record.url);
+    const normalizedUrl = record.url; // URL is already normalized when stored
 
-    if (existingRecordIndex >= 0) {
+    if (history.records.has(normalizedUrl)) {
       // Update existing record
-      const existing = history.records[existingRecordIndex];
-      history.records[existingRecordIndex] = {
+      const existing = history.records.get(normalizedUrl)!;
+      history.records.set(normalizedUrl, {
         ...record,
         queryCount: existing.queryCount + 1,
         lastQueried: Date.now(),
-      };
+      });
     } else {
       // Add new record
-      history.records.push({
+      history.records.set(normalizedUrl, {
         ...record,
         queryCount: 1,
         lastQueried: Date.now(),
       });
-      history.uniqueUrls++;
     }
 
     history.totalQueries++;
     history.lastUpdated = Date.now();
 
     // Keep only last MAX_RECORDS to prevent memory issues
-    if (history.records.length > MAX_RECORDS) {
-      history.records = history.records.slice(-MAX_RECORDS);
+    if (history.records.size > MAX_RECORDS) {
+      const entries = Array.from(history.records.entries());
+      const sortedEntries = entries.sort((a, b) => b[1].lastQueried - a[1].lastQueried);
+      const trimmedEntries = sortedEntries.slice(0, MAX_RECORDS);
+      history.records = new Map(trimmedEntries);
     }
 
     await this.state.storage.put("url_meta_history", history);
   }
 
   /**
-   * Get URL metadata history
+   * Get URL metadata history (internal use only)
    */
-  async getHistory(): Promise<UrlMetaHistory> {
+  private async getHistory(): Promise<UrlMetaHistory> {
     const history = await this.state.storage.get<UrlMetaHistory>("url_meta_history");
     return (
       history || {
-        records: [],
+        records: new Map<string, UrlMetaRecord>(),
         totalQueries: 0,
-        uniqueUrls: 0,
         lastUpdated: Date.now(),
       }
     );
   }
 
   /**
-   * Get records for a specific URL
-   */
-  async getRecordsForUrl(url: string): Promise<UrlMetaRecord[]> {
-    const history = await this.getHistory();
-    return history.records.filter((record) => record.url === url);
-  }
-
-  /**
    * Get the latest record for a URL
    */
   async getLatestRecordForUrl(url: string): Promise<UrlMetaRecord | null> {
-    const records = await this.getRecordsForUrl(url);
-    if (records.length === 0) return null;
-
-    // Sort by timestamp and return the latest
-    return records.sort((a, b) => b.timestamp - a.timestamp)[0];
+    const history = await this.getHistory();
+    const normalizedUrl = UrlNormalizer.normalize(url);
+    const record = history.records.get(normalizedUrl);
+    return record || null;
   }
 
   /**
    * Check if URL has been queried before
    */
   async hasUrlBeenQueried(url: string): Promise<boolean> {
-    const records = await this.getRecordsForUrl(url);
-    return records.length > 0;
+    const history = await this.getHistory();
+    const normalizedUrl = UrlNormalizer.normalize(url);
+    return history.records.has(normalizedUrl);
   }
 
   /**
@@ -204,10 +267,10 @@ export class UrlMetaStore {
     recentActivity: number; // queries in last 24 hours
   }> {
     const history = await this.getHistory();
-    const uniqueUrls = new Set(history.records.map((r) => r.url)).size;
+    const uniqueUrls = history.records.size;
 
     const oneDayAgo = Date.now() - ONE_DAY_MS;
-    const recentActivity = history.records.filter((r) => r.lastQueried > oneDayAgo).length;
+    const recentActivity = Array.from(history.records.values()).filter((r) => r.lastQueried > oneDayAgo).length;
 
     return {
       totalQueries: history.totalQueries,
@@ -262,20 +325,26 @@ export class UrlMetaStore {
           }
           break;
 
-        case "/store":
+        case "/update-llms-txt":
           if (method === "POST") {
-            const record: UrlMetaRecord = await request.json();
-            await this.storeRecord(record);
+            const body = (await request.json()) as {
+              url: string;
+              newLlmsTxt: string;
+              metadata?: Record<string, unknown>;
+            };
+            const { url: targetUrl, newLlmsTxt, metadata } = body;
+            await this.updateLlmsTxt(targetUrl, newLlmsTxt, metadata);
             return new Response(JSON.stringify({ success: true }), {
               headers: { "Content-Type": "application/json" },
             });
           }
           break;
 
-        case "/history":
-          if (method === "GET") {
-            const history = await this.getHistory();
-            return new Response(JSON.stringify(history), {
+        case "/store":
+          if (method === "POST") {
+            const record: UrlMetaRecord = await request.json();
+            await this.storeRecord(record);
+            return new Response(JSON.stringify({ success: true }), {
               headers: { "Content-Type": "application/json" },
             });
           }
@@ -291,8 +360,8 @@ export class UrlMetaStore {
               });
             }
 
-            const records = await this.getRecordsForUrl(urlParam);
-            return new Response(JSON.stringify({ records }), {
+            const record = await this.getLatestRecordForUrl(urlParam);
+            return new Response(JSON.stringify({ record }), {
               headers: { "Content-Type": "application/json" },
             });
           }
@@ -315,15 +384,6 @@ export class UrlMetaStore {
           }
           break;
 
-        case "/stats":
-          if (method === "GET") {
-            const stats = await this.getStats();
-            return new Response(JSON.stringify(stats), {
-              headers: { "Content-Type": "application/json" },
-            });
-          }
-          break;
-
         case "/clear":
           if (method === "POST") {
             await this.clearAll();
@@ -341,10 +401,8 @@ export class UrlMetaStore {
                 "POST /check-cache - Check if content is cached and return cached llms.txt if within threshold",
                 "POST /store-content - Store new content with llms.txt and update cache",
                 "POST /store - Store a URL metadata record",
-                "GET /history - Get all URL metadata history",
-                "GET /url?url=<url> - Get records for specific URL",
+                "GET /url?url=<url> - Get latest record for specific URL",
                 "GET /latest?url=<url> - Get latest record for URL",
-                "GET /stats - Get URL metadata statistics",
                 "POST /clear - Clear all records",
               ],
             }),
@@ -421,6 +479,21 @@ export class UrlMetaStoreClient {
 
     if (!response.ok) {
       throw new Error(`Failed to store content: ${response.statusText}`);
+    }
+  }
+
+  /**
+   * Update only the llms.txt content without changing the content hash
+   */
+  async updateLlmsTxt(url: string, newLlmsTxt: string, metadata?: Record<string, unknown>): Promise<void> {
+    const response = await this.durableObject.fetch("http://internal/update-llms-txt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, newLlmsTxt, metadata }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update llms.txt: ${response.statusText}`);
     }
   }
 
@@ -509,36 +582,6 @@ export class UrlMetaStoreClient {
     if (!response.ok) {
       throw new Error(`Failed to clear all records: ${response.statusText}`);
     }
-  }
-
-  /**
-   * Legacy method for backward compatibility
-   */
-  async storeUrl(url: string, contentHash: string): Promise<void> {
-    const record: UrlMetaRecord = {
-      url,
-      contentHash,
-      timestamp: Date.now(),
-      lastQueried: Date.now(),
-      queryCount: 1,
-      comparisonThreshold: 0.8,
-    };
-    await this.storeRecord(record);
-  }
-
-  /**
-   * Legacy method for backward compatibility
-   */
-  async getUrl(url: string): Promise<UrlMetaRecord | null> {
-    return this.getLatestRecordForUrl(url);
-  }
-
-  /**
-   * Legacy method for backward compatibility
-   */
-  async getAllUrls(): Promise<UrlMetaRecord[]> {
-    const history = await this.getHistory();
-    return history.records;
   }
 }
 

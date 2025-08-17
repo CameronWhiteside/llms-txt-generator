@@ -38,12 +38,6 @@ export async function GET(request: RequestWithEnv) {
           headers: { "Content-Type": "application/json" },
         });
 
-      case "all":
-        const allUrls = await dbClient.getAllUrls();
-        return new NextResponse(JSON.stringify({ records: allUrls }, null, 2), {
-          headers: { "Content-Type": "application/json" },
-        });
-
       case "url":
         const targetUrl = url.searchParams.get("url");
         if (!targetUrl) {
@@ -62,7 +56,7 @@ export async function GET(request: RequestWithEnv) {
           );
         }
 
-        const record = await dbClient.getUrl(targetUrl);
+        const record = await dbClient.getLatestRecordForUrl(targetUrl);
         return new NextResponse(JSON.stringify({ record }, null, 2), {
           headers: { "Content-Type": "application/json" },
         });
@@ -72,7 +66,7 @@ export async function GET(request: RequestWithEnv) {
           JSON.stringify(
             {
               error: "Invalid action",
-              availableActions: ["stats - Get URL metadata statistics", "all - Get all URL records", "url?url=<url> - Get specific URL record"],
+              availableActions: ["stats - Get URL metadata statistics", "url?url=<url> - Get specific URL record"],
             },
             null,
             2

@@ -1,6 +1,6 @@
 # LLM-TXT Generator
 
-A sophisticated web application that generates `llms.txt` files from any website using AI-powered content analysis. Built on Cloudflare's edge computing platform with intelligent caching, content similarity detection, and distributed storage.
+A sophisticated web application that generates `llms.txt` files from any website using AI-powered content analysis. Built on Cloudflare's edge computing platform with intelligent caching, content similarity detection, and distributed storage using Durable Objects.
 
 ## 🏗️ Architecture Overview
 
@@ -14,47 +14,51 @@ graph TB
     subgraph "Edge Computing Layer"
         D[Cloudflare Workers] --> E[Next.js API Routes]
         E --> F[api/generate]
-        E --> G[api/debug]
-        E --> H[api/test-*]
+        E --> G[api/content]
+        E --> H[api/content/revise]
+        E --> I[api/db]
+        E --> J[api/debug]
+        E --> K[api/test-*]
     end
 
     subgraph "AI & Processing Layer"
-        F --> I[Content Fetching]
-        I --> J[HTML Sanitization]
-        J --> K[Content Hashing]
-        K --> L[Cache Check]
-        L --> M{Content Similar?}
-        M -->|Yes| N[Return Cached Result]
-        M -->|No| O[AI Generation]
-        O --> P[llms.txt Creation]
+        F --> L[Content Fetching]
+        L --> M[HTML Sanitization]
+        M --> N[Content Hashing]
+        N --> O[Cache Check]
+        O --> P{Content Similar?}
+        P -->|Yes| Q[Return Cached Result]
+        P -->|No| R[AI Generation]
+        R --> S[llms.txt Creation]
     end
 
     subgraph "Storage Layer"
-        Q[R2 Object Storage] --> R[llms.txt Files]
-        S[Durable Objects] --> T[URL Metadata Store]
-        U[Content Hashes] --> V[Similarity Cache]
+        T[Durable Objects] --> U[URL Metadata Store]
+        U --> V[Content Hashes]
+        U --> W[llms.txt Content]
+        U --> X[Query History]
     end
 
     subgraph "AI Services"
-        W[Cloudflare Workers AI] --> X[Llama 3.2 3B]
-        W --> Y[Llama 3.8B]
+        Y[Cloudflare Workers AI] --> Z[Llama 3.2 3B]
+        Y --> AA[Llama 3.8B]
     end
 
     subgraph "Data Flow"
-        Z[URL Input] --> AA[Validation]
-        AA --> BB[Content Extraction]
-        BB --> CC[Hash Generation]
-        CC --> DD[Cache Lookup]
-        DD --> EE[AI Processing]
-        EE --> FF[Storage]
-        FF --> GG[Response]
+        BB[URL Input] --> CC[Validation]
+        CC --> DD[Content Extraction]
+        DD --> EE[Hash Generation]
+        EE --> FF[Cache Lookup]
+        FF --> GG[AI Processing]
+        GG --> HH[Storage]
+        HH --> II[Response]
     end
 
     A --> D
-    L --> S
-    P --> Q
-    O --> W
-    K --> U
+    O --> T
+    S --> T
+    R --> Y
+    N --> U
 ```
 
 ## 🚀 How It Works
@@ -68,7 +72,6 @@ sequenceDiagram
     participant W as Worker
     participant AI as AI Service
     participant DO as Durable Object
-    participant R2 as R2 Storage
 
     U->>F: Submit URL(s)
     F->>W: POST /api/generate
@@ -79,12 +82,10 @@ sequenceDiagram
     W->>DO: Check Cache (SimHash)
     alt Cache Hit
         DO->>W: Return Cached llms.txt
-        W->>R2: Store if not exists
     else Cache Miss
         W->>AI: Generate llms.txt
         AI->>W: Return AI Response
         W->>DO: Store New Content
-        W->>R2: Store llms.txt
     end
     W->>F: Return Result
     F->>U: Display/Download
@@ -92,7 +93,7 @@ sequenceDiagram
 
 ### 2. **Intelligent Caching System**
 
-The system uses a sophisticated multi-layer caching approach:
+The system uses a sophisticated multi-layer caching approach with Durable Objects:
 
 #### **SimHash Content Similarity Detection**
 
@@ -112,11 +113,12 @@ graph LR
     F -->|No| H[Generate New Content]
 ```
 
-#### **Cache Layers**
+#### **Durable Objects Cache**
 
-1. **Durable Objects Cache**: In-memory storage for URL metadata and content hashes
-2. **R2 Storage**: Persistent storage for generated llms.txt files
-3. **Content Hash Tracking**: SimHash-based similarity detection
+1. **URL Metadata Store**: In-memory storage for URL metadata and content hashes
+2. **Content Storage**: Stores actual llms.txt content for instant retrieval
+3. **Query History**: Tracks usage patterns and statistics
+4. **Content Hash Tracking**: SimHash-based similarity detection
 
 ### 3. **Content Hashing & Similarity Detection**
 
@@ -177,23 +179,16 @@ The AI uses carefully crafted prompts to generate structured llms.txt files:
 
 #### **2. Durable Objects**
 
-- **Purpose**: Stateful storage for URL metadata
+- **Purpose**: Stateful storage for URL metadata and content
 - **Features**:
-  - In-memory caching
+  - In-memory caching with persistence
   - Content hash storage
+  - llms.txt content storage
   - Query history tracking
   - Automatic scaling
+  - Built-in redundancy
 
-#### **3. R2 Object Storage**
-
-- **Purpose**: Persistent storage for generated files
-- **Features**:
-  - S3-compatible API
-  - Global edge caching
-  - No egress fees
-  - Automatic compression
-
-#### **4. Workers AI**
+#### **3. Workers AI**
 
 - **Models**: Llama 3.2 3B, Llama 3.8B
 - **Features**:
@@ -220,20 +215,21 @@ graph TB
 
     subgraph "Storage Layer"
         H[Durable Object] --> I[URL Metadata]
-        J[R2 Bucket] --> K[llms.txt Files]
-        L[Content Hashes] --> M[Similarity Cache]
+        H --> J[llms.txt Content]
+        H --> K[Content Hashes]
+        H --> L[Query History]
     end
 
     subgraph "AI Layer"
-        N[Workers AI] --> O[Llama Models]
-        O --> P[Content Analysis]
-        P --> Q[llms.txt Generation]
+        M[Workers AI] --> N[Llama Models]
+        N --> O[Content Analysis]
+        O --> P[llms.txt Generation]
     end
 
     G --> H
-    G --> N
-    Q --> J
-    F --> L
+    G --> M
+    P --> H
+    F --> K
 ```
 
 ## 🔧 Technical Implementation
@@ -262,23 +258,27 @@ graph TB
 src/
 ├── app/
 │   ├── api/
-│   │   ├── generate/route.ts      # Main generation endpoint
-│   │   ├── debug/route.ts         # Debug utilities
-│   │   └── test-*/route.ts        # Test endpoints
-│   ├── page.tsx                   # Main UI
-│   └── layout.tsx                 # App layout
+│   │   ├── generate/route.ts           # Main generation endpoint
+│   │   ├── content/route.ts            # Content update endpoint
+│   │   ├── content/revise/route.ts     # AI revision endpoint
+│   │   ├── db/route.ts                 # Database management
+│   │   ├── debug/route.ts              # Debug utilities
+│   │   └── test-*/route.ts             # Test endpoints
+│   ├── page.tsx                        # Main UI
+│   └── layout.tsx                      # App layout
 ├── lib/
-│   ├── ai.ts                      # AI service integration
-│   ├── softHash.ts                # SimHash implementation
-│   ├── r2Storage.ts               # R2 storage utilities
-│   ├── cleanHTML.ts               # HTML sanitization
-│   ├── promptTemplates.ts         # AI prompt templates
-│   └── validation.ts              # Input validation
+│   ├── ai.ts                           # AI service integration
+│   ├── softHash.ts                     # SimHash implementation
+│   ├── cleanHTML.ts                    # HTML sanitization
+│   ├── promptTemplates.ts              # AI prompt templates
+│   ├── validation.ts                   # Input validation
+│   ├── errors.ts                       # Error handling
+│   └── efw.ts                          # Error handling utilities
 ├── durable-objects/
-│   ├── UrlMetaStore.ts            # Durable Object implementation
-│   └── index.ts                   # DO exports
+│   ├── UrlMetaStore.ts                 # Durable Object implementation
+│   └── index.ts                        # DO exports
 └── scripts/
-    └── add-durable-objects.js     # Build script
+    └── add-durable-objects.js          # Build script
 ```
 
 ### **Configuration Files**
@@ -290,12 +290,6 @@ src/
   "name": "llm-txt-generator",
   "main": ".open-next/worker.js",
   "ai": { "binding": "AI" },
-  "r2_buckets": [
-    {
-      "binding": "LLMS_TXT_STORAGE",
-      "bucket_name": "llms-txt-storage"
-    }
-  ],
   "durable_objects": {
     "bindings": [
       {
@@ -306,6 +300,232 @@ src/
   }
 }
 ```
+
+## 📚 API Documentation
+
+### **Core Endpoints**
+
+#### **1. Generate llms.txt** - `POST /api/generate`
+
+Generates llms.txt content from one or more URLs using AI analysis.
+
+**Request Body:**
+
+```json
+{
+  "urls": "https://example.com" | ["https://example.com", "https://example2.com"],
+  "model": "llama-3.2-3b" | "llama-3.8b" (optional, default: "llama-3.8b"),
+  "additionalContext": "string" (optional),
+  "threshold": 0.8 (optional, 0-1, default: 0.8)
+}
+```
+
+**Response:**
+
+- **Success (200)**: Returns llms.txt content as downloadable markdown file
+- **Error (400/500)**: JSON with error details and processing results
+
+**Example:**
+
+```bash
+curl -X POST https://your-domain.com/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": "https://example.com",
+    "model": "llama-3.8b",
+    "threshold": 0.8
+  }'
+```
+
+#### **2. Update Content** - `PUT /api/content`
+
+Manually updates the llms.txt content for a URL without AI generation.
+
+**Request Body:**
+
+```json
+{
+  "urls": "https://example.com" | ["https://example.com"],
+  "content": "New llms.txt content here...",
+  "originalHash": "string" (optional)
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "contentHash": {
+    "hash": "abc123...",
+    "timestamp": 1703123456789,
+    "metadata": {}
+  }
+}
+```
+
+**Example:**
+
+```bash
+curl -X PUT https://your-domain.com/api/content \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": "https://example.com",
+    "content": "# Summary\nThis is updated content..."
+  }'
+```
+
+#### **3. AI Revision** - `POST /api/content/revise`
+
+Uses AI to revise existing llms.txt content based on user feedback.
+
+**Request Body:**
+
+```json
+{
+  "urls": "https://example.com" | ["https://example.com"],
+  "currentContent": "Current llms.txt content...",
+  "feedback": "Make it more concise and add contact information",
+  "model": "llama-3.8b" (optional),
+  "originalHash": "string" (optional)
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "originalContent": "Previous content...",
+  "revisedContent": "AI-revised content...",
+  "feedback": "User feedback...",
+  "aiTokens": 150,
+  "aiLatency": 1200,
+  "contentHash": {
+    "hash": "def456...",
+    "timestamp": 1703123456789,
+    "metadata": {}
+  }
+}
+```
+
+**Example:**
+
+```bash
+curl -X POST https://your-domain.com/api/content/revise \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": "https://example.com",
+    "currentContent": "# Summary\nOld content...",
+    "feedback": "Make it more professional and add pricing information"
+  }'
+```
+
+#### **4. Database Management** - `GET/POST /api/db`
+
+Manages the Durable Objects database and provides statistics.
+
+**GET Endpoints:**
+
+- **Statistics**: `GET /api/db?action=stats`
+
+  ```json
+  {
+    "totalQueries": 1250,
+    "uniqueUrls": 89,
+    "lastUpdated": 1703123456789,
+    "recentActivity": 15
+  }
+  ```
+
+- **URL Record**: `GET /api/db?action=url&url=https://example.com`
+  ```json
+  {
+    "record": {
+      "url": "https://example.com",
+      "contentHash": "abc123...",
+      "llmsTxt": "Stored content...",
+      "timestamp": 1703123456789,
+      "lastQueried": 1703123456789,
+      "queryCount": 5,
+      "comparisonThreshold": 0.8,
+      "metadata": {}
+    }
+  }
+  ```
+
+**POST Endpoints:**
+
+- **Clear All**: `POST /api/db?action=clear`
+  ```json
+  {
+    "success": true
+  }
+  ```
+
+**Examples:**
+
+```bash
+# Get statistics
+curl "https://your-domain.com/api/db?action=stats"
+
+# Get URL record
+curl "https://your-domain.com/api/db?action=url&url=https://example.com"
+
+# Clear all records
+curl -X POST "https://your-domain.com/api/db?action=clear"
+```
+
+### **Debug & Test Endpoints**
+
+#### **5. Debug** - `GET /api/debug`
+
+System health check and diagnostic information.
+
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "timestamp": 1703123456789,
+  "environment": "production",
+  "services": {
+    "ai": "available",
+    "durableObjects": "available"
+  }
+}
+```
+
+#### **6. Test Endpoints**
+
+- **AI Test**: `POST /api/test-ai` - Test AI service connectivity
+- **Database Test**: `GET /api/test-db` - Test Durable Objects connectivity
+- **Hash Test**: `POST /api/test-hash` - Test SimHash functionality
+- **Content Test**: `POST /api/test-content` - Test content processing
+- **Cache Similarity Test**: `POST /api/test-cache-similarity` - Test caching logic
+- **URL Normalizer Test**: `POST /api/test-url-normalizer` - Test URL normalization
+- **Feedback Test**: `POST /api/test-feedback` - Test feedback processing
+- **Models Test**: `GET /api/test-models` - List available AI models
+
+### **Error Responses**
+
+All endpoints return consistent error responses:
+
+```json
+{
+  "error": "Error message",
+  "details": "Additional error details",
+  "timestamp": 1703123456789,
+  "requestId": "req_123456"
+}
+```
+
+**Common HTTP Status Codes:**
+
+- `200` - Success
+- `400` - Bad Request (invalid input)
+- `500` - Internal Server Error
+- `503` - Service Unavailable
 
 ## 🚀 Deployment & Scaling
 
@@ -327,7 +547,7 @@ npm run deploy
 - **Horizontal Scaling**: Automatic across 200+ edge locations
 - **Vertical Scaling**: Durable Objects handle stateful data
 - **Caching**: Multi-layer cache reduces AI costs
-- **Storage**: R2 provides unlimited, cost-effective storage
+- **Storage**: Durable Objects provide unlimited, cost-effective storage
 
 ### **Performance Metrics**
 
@@ -371,9 +591,9 @@ const thresholds = {
 
 ### **Data Protection**
 
-- **No Data Retention**: Content not stored permanently
+- **No Data Retention**: Content not stored permanently outside Durable Objects
 - **Hash-based Caching**: No raw content in cache
-- **Secure Storage**: R2 with encryption at rest
+- **Secure Storage**: Durable Objects with encryption at rest
 - **Input Validation**: Comprehensive URL validation
 
 ### **Rate Limiting**
@@ -418,10 +638,9 @@ npm run deploy
 
 ### **Environment Setup**
 
-1. **Cloudflare Account**: Required for Workers, R2, and AI
+1. **Cloudflare Account**: Required for Workers, Durable Objects, and AI
 2. **Wrangler CLI**: For deployment and management
-3. **R2 Bucket**: For file storage
-4. **Durable Objects**: For caching and metadata
+3. **Durable Objects**: For caching and metadata storage
 
 ### **Testing**
 
@@ -442,7 +661,7 @@ curl -X GET http://localhost:3000/api/test-db
 
 - **Edge Computing**: Global distribution for low latency
 - **Intelligent Caching**: Reduces AI costs and improves speed
-- **Optimized Storage**: Cost-effective R2 storage
+- **Optimized Storage**: Cost-effective Durable Objects storage
 
 ### **Scalability**
 

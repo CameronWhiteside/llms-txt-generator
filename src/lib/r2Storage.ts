@@ -4,6 +4,7 @@
  */
 
 import { SimHash } from "./softHash";
+import { UrlNormalizer } from "./urlNormalizer";
 
 export interface R2StorageConfig {
   bucket: R2Bucket;
@@ -26,8 +27,19 @@ export interface StoredDocument {
  * @returns Unique key for R2 storage
  */
 export function generateDocumentKey(urls: string[], contentHash: string): string {
-  // Create a simple hash of the URLs for the file path
-  const urlHash = SimHash.hash(urls.sort().join("|")).slice(0, 8); // Use first 8 characters for shorter path
+  // Normalize URLs for consistent cache key generation
+  const normalizedUrls = UrlNormalizer.normalizeArray(urls);
+  console.log("🔗 Original URLs:", urls);
+  console.log("🔗 Normalized URLs:", normalizedUrls);
+
+  // Create a cache key from normalized URLs
+  const cacheKey = UrlNormalizer.generateCacheKey(normalizedUrls);
+  console.log("🔑 Cache key:", cacheKey);
+
+  // Create a simple hash of the normalized URLs for the file path
+  const urlHash = SimHash.hash(cacheKey).slice(0, 8); // Use first 8 characters for shorter path
+  console.log("🔐 URL hash:", urlHash);
+
   return `${urlHash}/llms.txt`;
 }
 
